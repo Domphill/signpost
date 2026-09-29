@@ -1,7 +1,7 @@
 {
   "name": "Signpost",
   "short_name": "Signpost",
-  "description": "Autism and ADHD screening that follows the UK (NICE) pathway. Answers stay on your device.",
+  "description": "Autism, ADHD and narcissism screening that follows the UK pathway. Answers stay on your device.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

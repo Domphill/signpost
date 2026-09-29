@@ -6,7 +6,7 @@ $root = $PSScriptRoot
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $read = { param($p) [IO.File]::ReadAllText((Join-Path $root $p), [Text.Encoding]::UTF8) }
 $css = & $read 'src\base.css'
-$js = (& $read 'src\data.js') + "`n" + (& $read 'src\data-adhd.js') + "`n" + (& $read 'src\score.js') + "`n" + (& $read 'src\app.js')
+$js = (& $read 'src\data.js') + "`n" + (& $read 'src\data-adhd.js') + "`n" + (& $read 'src\data-narc.js') + "`n" + (& $read 'src\score.js') + "`n" + (& $read 'src\app.js')
 if ($js -match '</script') { throw 'A script contains </script, which would end the inline script early.' }
 $html = @'
 <title>Signpost</title>

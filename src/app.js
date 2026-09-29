@@ -114,11 +114,17 @@
   }
 
   function supportHtml(kind) {
-    const lines = DATA.support[kind];
+    const lines = DATA.support[kind] || DATA.support.self;
+    const heads = {
+      self: ['You don’t have to wait for an assessment to get help', 'Thoughts like these are common when life has been hard for a long time, and they are worth telling someone about today. Please mention them to your GP too.'],
+      parent: ['Help you can reach now', 'Please tell your GP or health visitor how things are at home. These lines can help straight away.'],
+      abuse: ['People who can help now, free and in confidence', 'Fear, threats or being stopped from leaving are the things domestic abuse services respond to straight away, whatever else is or is not true about this person. You do not need to have decided anything to call.']
+    };
+    const h = heads[kind] || heads.self;
     return (
       '<aside class="support" role="region" aria-label="Where to get help now">' +
-      '<h3>' + (kind === 'self' ? 'You don’t have to wait for an assessment to get help' : 'Help you can reach now') + '</h3>' +
-      '<p>' + (kind === 'self' ? 'Thoughts like these are common when life has been hard for a long time, and they are worth telling someone about today. Please mention them to your GP too.' : 'Please tell your GP or health visitor how things are at home. These lines can help straight away.') + '</p>' +
+      '<h3>' + h[0] + '</h3>' +
+      '<p>' + h[1] + '</p>' +
       '<ul>' + lines.map((l) => '<li><b>' + esc(l.name) + '.</b> ' + esc(l.detail) + '</li>').join('') + '</ul>' +
       '</aside>'
     );
@@ -144,25 +150,26 @@
     return (
       '<header class="hero">' +
       '<div class="brand big">' + logo(40) + '<span>Signpost</span></div>' +
-      '<h1>Autism and ADHD screening, the way the UK pathway does it</h1>' +
-      '<p class="lede">Signpost takes you through the same three stages as an NHS referral: the signs NICE tells GPs to look for, the short questionnaires they use, and the history an assessment team takes. At the end you get a profile, a plain-English reading of it, and a summary to take to your GP.</p>' +
+      '<h1>Autism, ADHD and narcissism screening, the way the UK pathway does it</h1>' +
+      '<p class="lede">Signpost takes you through the same stages as an NHS referral: the signs professionals are told to look for, the questionnaires they use, and the history an assessment takes. At the end you get a profile, a plain-English reading of it, and a summary to take with you.</p>' +
       '<div class="cta">' +
       (progress
         ? '<button class="btn primary" data-go="resume">Continue the ' + esc(c ? c.label.toLowerCase() : '') + ' screening</button><button class="btn" data-go="restart">' + (confirmClear ? 'Tap again to clear your answers' : 'Start again') + '</button>'
-        : '<button class="btn primary" data-go="start:autism">Autism screening</button><button class="btn primary" data-go="start:adhd">ADHD screening</button>') +
+        : '<button class="btn primary" data-go="start:autism">Autism screening</button><button class="btn primary" data-go="start:adhd">ADHD screening</button><button class="btn primary" data-go="start:narcissism">Narcissism check</button>') +
       '</div>' +
-      '<p class="note">Signpost does not diagnose anything. Only a qualified team can do that, and they use interviews and observation as well as questionnaires. Your answers stay on this device.</p>' +
+      '<p class="note">Signpost does not diagnose anything. Only a qualified clinician can do that, and they use interviews and observation as well as questionnaires. Your answers stay on this device.</p>' +
       '</header>' +
       '<section class="card"><h2>What you will do</h2><ol class="stages">' +
-      '<li><b>Recognition.</b> Who this is about, then the NICE checklist a GP, health visitor or school uses when deciding about referral. About three minutes.</li>' +
-      '<li><b>Screening.</b> Autism: the AQ-10 or the Q-CHAT-10. ADHD: the adult ASRS v1.1 or the SNAP-IV parent rating. All scored exactly as published. Three to five minutes.</li>' +
-      '<li><b>History.</b> The areas an assessment team works through: the core features, when it started, where it shows up, impact on daily life, and other conditions. Ten to fifteen minutes. You can stop and come back.</li>' +
+      '<li><b>Recognition.</b> Who this is about, then the checklist a GP, health visitor, school or clinician uses when deciding what to do next. About three minutes.</li>' +
+      '<li><b>Screening.</b> Autism: the AQ-10 or the Q-CHAT-10. ADHD: the adult ASRS v1.1 or the SNAP-IV parent rating. Narcissism: the NPI-16 and the Hypersensitive Narcissism Scale. All scored exactly as published. Three to five minutes.</li>' +
+      '<li><b>History.</b> The areas an assessment works through: the core features, when it started, where it shows up, impact on daily life, and other conditions. Ten to fifteen minutes. You can stop and come back.</li>' +
       '<li><b>Results.</b> A profile of the answers, what it does and does not mean, what happens next where you live, and a summary you can copy.</li>' +
       '</ol></section>' +
       Object.keys(DATA.conditions)
-        .map((id) => {
+        .map((id, i) => {
           const k = DATA.conditions[id];
-          return '<section class="card"><h2>How ' + (id === 'adhd' ? 'an ADHD' : 'an autism') + ' diagnosis works in the UK</h2><ol class="pathway">' + k.pathway.map((p) => '<li><b>' + esc(p.title) + '</b><span>' + esc(p.text) + '</span></li>').join('') + '</ol></section>';
+          const what = id === 'adhd' ? 'an ADHD diagnosis' : id === 'narcissism' ? 'a narcissism concern' : 'an autism diagnosis';
+          return '<details class="card"' + (i === 0 ? ' open' : '') + '><summary>How ' + what + ' is handled in the UK</summary><ol class="pathway">' + k.pathway.map((p) => '<li><b>' + esc(p.title) + '</b><span>' + esc(p.text) + '</span></li>').join('') + '</ol></details>';
         })
         .join('') +
       '<footer class="foot"><button class="link" data-go="about">Sources, privacy and about</button></footer>'
@@ -266,7 +273,10 @@
     const def = DATA.screeners[r.screener];
     const a = answersFor('screener');
     let items;
-    if (def.type === 'qchat') items = def.items.map((it, i) => questionHtml('screener', it, i + 1, optionsHtml('screener', it.id, it.options, null, a[it.id], 'v')));
+    if (def.type === 'qchat' || def.type === 'npi') {
+      /* forced-choice pairs have no stem of their own */
+      items = def.items.map((it, i) => questionHtml('screener', def.type === 'npi' ? Object.assign({}, it, { text: 'Which is closer to you?' }) : it, i + 1, optionsHtml('screener', it.id, it.options, null, a[it.id], 'v')));
+    }
     else if (def.type === 'asrs') {
       items = [];
       def.items.forEach((it, i) => {
@@ -275,7 +285,7 @@
         items.push(questionHtml('screener', it, i + 1, optionsHtml('screener', it.id, def.options, null, a[it.id], 'n5')));
       });
     } else items = def.items.map((it, i) => questionHtml('screener', it, i + 1, optionsHtml('screener', it.id, def.options, null, a[it.id], 'n4')));
-    const credit = def.type === 'asrs' ? 'ASRS v1.1 Symptom Checklist, World Health Organization; Kessler et al. (2005).' : def.type === 'snap' ? 'SNAP-IV rating scale (Swanson), ADHD items; public domain.' : 'Items reproduced from Allison, Auyeung and Baron-Cohen (2012), Autism Research Centre, University of Cambridge.';
+    const credit = def.type === 'asrs' ? 'ASRS v1.1 Symptom Checklist, World Health Organization; Kessler et al. (2005).' : def.type === 'snap' ? 'SNAP-IV rating scale (Swanson), ADHD items; public domain.' : def.type === 'npi' ? 'NPI-16, Ames, Rose and Anderson (2006), Journal of Research in Personality.' : 'Items reproduced from Allison, Auyeung and Baron-Cohen (2012), Autism Research Centre, University of Cambridge.';
     return (
       '<span class="eyebrow">Stage 2 · Screening</span>' +
       '<h1>' + esc(def.title) + '</h1>' +
@@ -300,10 +310,10 @@
     } else if (p.type === 'check') {
       html += checkHtml(screen, p.id, p.items);
     } else if (p.type === 'single') {
-      html += '<div class="qs">' + p.items.map((it, i) => questionHtml(screen, it, i + 1, optionsHtml(screen, it.id, it.options, null, a[it.id], it.options.length > 3 ? 'v' : 'n3'))).join('') + '</div>';
+      html += '<div class="qs">' + p.items.map((it, i) => questionHtml(screen, it, i + 1, optionsHtml(screen, it.id, it.options, null, a[it.id], p.layout || (it.options.length > 3 ? 'v' : 'n3')))).join('') + '</div>';
       if (p.risk) {
         const res = Score.part(a, p);
-        if (res.flagged) html += supportHtml(route().respondent);
+        if (res.flagged) html += supportHtml(p.support || route().respondent);
       }
     }
     return html;
@@ -347,6 +357,7 @@
     const self = r.respondent === 'self';
     const c = DATA.conditions[r.condition];
     const adhd = r.condition === 'adhd';
+    const ct = c.text || {};
     const nation = c.nationNotes[res.nation] || c.nationNotes.england;
     const text = Score.summaryText(res, DATA);
     let html = '<span class="eyebrow">Stage 4 · Results · ' + esc(r.ageText) + '</span>';
@@ -359,10 +370,23 @@
     if (v.maskingNote) html += '<p class="callout">' + esc(v.maskingNote) + '</p>';
     html += '</section>';
 
-    if (res.risk) html += supportHtml(r.respondent);
+    if (res.risk) html += supportHtml(res.riskKind);
 
     /* screener */
-    if (res.screener && res.screener.type === 'asrs') {
+    if (res.screener && res.screener.type === 'npi') {
+      const s = res.screener;
+      html += '<section class="card"><h2>' + esc(s.def.title) + '</h2>';
+      html += '<div class="score"><span class="score-num">' + s.score + '<small>/16</small></span><span class="score-txt">' + (s.complete ? 'Grandiose narcissism ' + s.band.label + '. Typical adult scores are around 4 to 6; 9 or more is higher than most people, 12 or more much higher.' : 'Only ' + s.answered + ' of 16 answered, so there is no valid score.') + '</span></div>';
+      html += '<p class="muted small">The NPI measures a trait on a continuum. It has no clinical cut-off, high scorers are often confident and outgoing rather than unwell, and it says nothing on its own about a personality disorder. Which is why the sections below matter more.</p>';
+      html += '</section>';
+      if (res.hsns) {
+        const h = res.hsns;
+        html += '<section class="card"><h2>Hypersensitive Narcissism Scale</h2>';
+        html += '<div class="score"><span class="score-num">' + h.score + '<small>/50</small></span><span class="score-txt">' + (h.complete ? 'Vulnerable narcissism ' + h.band.label + '. Typical adult scores are around 25 to 35; 36 or more is higher than most people, 42 or more much higher.' : 'Only ' + h.answered + ' of 10 answered, so there is no valid score.') + '</span></div>';
+        html += '<p class="muted small">This is the quieter shape: easily wounded, self-absorbed, resentful of demands. It overlaps a great deal with social anxiety, low self-esteem and depression, which are treatable in their own right.</p>';
+        html += '</section>';
+      }
+    } else if (res.screener && res.screener.type === 'asrs') {
       const s = res.screener;
       html += '<section class="card"><h2>' + esc(s.def.title) + '</h2>';
       html += '<div class="score"><span class="score-num">' + s.score + '<small>/6</small></span><span class="score-txt"><b>Part A.</b> ' + (s.partAComplete ? (s.flagged ? 'At or above the screening cut-off of ' + s.threshold + '. Adult ADHD services treat this as a positive screen.' : 'Below the screening cut-off of ' + s.threshold + '.') : 'Not all six Part A questions were answered, so there is no valid screen.') + '</span></div>';
@@ -389,9 +413,11 @@
 
     /* signs */
     const g = res.signs;
-    html += '<section class="card"><h2>' + esc(g.rule === 'nice-adult' ? 'The NICE test for adults' : g.rule === 'nice-adhd' ? 'The NICE referral test' : 'Signs NICE lists for this age') + '</h2>';
+    html += '<section class="card"><h2>' + esc(g.rule === 'nice-adult' ? 'The NICE test for adults' : g.rule === 'nice-adhd' ? 'The NICE referral test' : g.rule === 'core-all' ? 'The ICD-11 pattern' : g.def.summaryLabel ? 'The behaviour pattern' : 'Signs NICE lists for this age') + '</h2>';
     if (g.rule === 'nice-adult') html += '<p>' + g.core + ' of 3 core signs and ' + g.context + ' of 4 life factors ticked. ' + (g.meets ? 'That meets the NICE test: a GP should consider an assessment.' : 'The NICE test needs at least one of each. On the checklist alone, a GP would not be prompted to refer, but the rest of your answers still count.') + '</p>';
     else if (g.rule === 'nice-adhd') html += '<p>' + g.core + ' of 3 symptom patterns and ' + g.context + ' of ' + g.contextTotal + ' of the persistence, settings and impact conditions ticked. ' + (g.meets ? 'That meets the NICE test: a GP should refer for an assessment.' : 'NICE needs a pattern plus all three conditions. On the checklist alone, a GP would not be prompted to refer, but the rest of your answers still count.') + '</p>';
+    else if (g.rule === 'core-all') html += '<p>' + g.core + ' of 2 core problems and ' + g.context + ' of ' + g.contextTotal + ' of long-standing, everywhere and costly ticked. ' + (g.meets ? 'That is the general shape of a personality disorder in ICD-11, whatever traits colour it. It is the first thing a clinician checks, and it is present.' : 'A personality disorder needs a core problem plus all three of the second group. On this checklist the full shape is not present; traits without that shape are common and are not an illness.') + '</p>';
+    else if (g.def.summaryLabel) html += '<p>' + g.checked + ' of ' + g.total + ' behaviours ticked' + (g.groups.fear ? ', ' + g.groups.fear.checked + ' of them in the fear group' : '') + '. ' + (g.meets ? 'Several together is the pattern the statutory guidance describes as controlling or coercive behaviour. It is a criminal offence in the UK, and no diagnosis of the other person is needed for services to help.' : g.checked > 0 ? 'A few of these on their own can be ordinary conflict or a bad patch; the pattern matters more than any single item. Fear, at any level, is never ordinary.' : 'None ticked.') + '</p>';
     else html += '<p>' + g.checked + ' of ' + g.total + ' signs ticked. ' + (g.meets ? 'Several signs together are what NICE tells professionals to act on.' : g.checked > 0 ? 'NICE does not set a number; even one sign is worth mentioning, and several together are what professionals act on.' : 'None ticked.') + '</p>';
     if (g.labels.length) html += '<details><summary>What was ticked</summary><ul class="plain">' + g.labels.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul></details>';
     html += '</section>';
@@ -400,7 +426,8 @@
     const ratingSections = res.sections.filter((s) => s.main.type === 'rating');
     if (ratingSections.length) {
       html += '<section class="card"><h2>Profile</h2>';
-      if (adhd) html += '<p class="muted small">Each bar is the average of your 0 to 3 answers in that section. “Marked” is 1.5 or more. The symptoms themselves are counted in the questionnaire above; these bars show impact and the everyday patterns clinics ask about.</p>';
+      if (ct.profile) html += '<p class="muted small">' + esc(ct.profile) + '</p>';
+      else if (adhd) html += '<p class="muted small">Each bar is the average of your 0 to 3 answers in that section. “Marked” is 1.5 or more. The symptoms themselves are counted in the questionnaire above; these bars show impact and the everyday patterns clinics ask about.</p>';
       else {
         html += '<p class="muted small">Each bar is the average of your 0 to 3 answers in that section. A diagnosis needs difficulties in all three social communication areas (A) and at least two of the four repetitive, routine, interest and sensory areas (B), present from early childhood and affecting daily life. “Marked” is 1.5 or more.</p>';
         html += '<p><b>Social communication and interaction:</b> ' + res.aMarked + ' of ' + res.aTotal + ' areas marked' + (res.aAnswered < res.aTotal ? ' (' + (res.aTotal - res.aAnswered) + ' not answered)' : '') + '. <b>Repetitive, routine, interest and sensory:</b> ' + res.bMarked + ' of ' + res.bTotal + ' areas marked' + (res.bAnswered < res.bTotal ? ' (' + (res.bTotal - res.bAnswered) + ' not answered)' : '') + '.</p>';
@@ -413,7 +440,7 @@
 
     /* early development */
     if (res.early) {
-      html += '<section class="card"><h2>' + (adhd ? 'Childhood and onset' : 'Early development') + '</h2><p>' + res.early.yes + ' of ' + res.early.total + ' answered yes' + (res.early.unsure ? ', ' + res.early.unsure + ' not sure' : '') + '. ' + (res.early.yes >= 3 ? 'Features going back to childhood are part of what a team needs to see.' : res.early.unsure >= 3 ? 'Several “not sure” answers: a parent, older relative, or old school reports could fill the gaps before an assessment.' : (adhd ? 'ADHD' : 'Autism') + ' starts in childhood, so a team will look hard at the early years; if the difficulties started later, they will consider other explanations.') + '</p>';
+      html += '<section class="card"><h2>' + esc(ct.early || (adhd ? 'Childhood and onset' : 'Early development')) + '</h2><p>' + res.early.yes + ' of ' + res.early.total + ' answered yes' + (res.early.unsure ? ', ' + res.early.unsure + ' not sure' : '') + '. ' + (ct.earlyNote ? esc(ct.earlyNote) : res.early.yes >= 3 ? 'Features going back to childhood are part of what a team needs to see.' : res.early.unsure >= 3 ? 'Several “not sure” answers: a parent, older relative, or old school reports could fill the gaps before an assessment.' : (adhd ? 'ADHD' : 'Autism') + ' starts in childhood, so a team will look hard at the early years; if the difficulties started later, they will consider other explanations.') + '</p>';
       if (res.early.yesItems.length) html += '<ul class="plain">' + res.early.yesItems.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
       if (res.hearing && res.hearing.values.h1) html += '<p class="muted small">Hearing: ' + esc(res.hearing.values.h1.label) + (res.hearing.values.h1.index > 0 ? '. A hearing test is a standard early step; ask your GP or health visitor.' : '.') + '</p>';
       html += '</section>';
@@ -436,12 +463,19 @@
       html += '</section>';
     }
 
+    /* narcissism, about someone else: the situation */
+    if (res.situation) {
+      html += '<section class="card"><h2>Your situation</h2><p>' + (res.situation.labels.length ? esc(res.situation.labels.join('; ')) + '.' : 'Nothing ticked.') + '</p>';
+      if (res.safety && res.safety.values.s1) html += '<p><b>Safety:</b> ' + esc(res.safety.values.s1.label) + '.' + (res.safety.flagged ? ' That, on its own, is a reason to talk to a domestic abuse service, whatever else is true.' : '') + '</p>';
+      html += '</section>';
+    }
+
     /* other conditions and support */
     if (res.conditions || res.supportSoFar || res.raised) {
-      html += '<section class="card"><h2>Other things to raise</h2>';
-      if (res.conditions) html += '<p><b>Conditions diagnosed or suspected:</b> ' + (res.conditions.labels.length ? esc(res.conditions.labels.join('; ')) : 'none ticked') + '.</p>' + (res.conditions.labels.length && !res.conditions.none ? '<p class="muted small">' + (adhd ? 'The team will weigh these up: some can look like ADHD (anxiety, low mood, poor sleep, thyroid problems, the effects of trauma), many occur alongside it, and anything about the heart or blood pressure matters before medication. Mention them all.' : 'The team will weigh these up: some can look like autism (social anxiety, ADHD, language disorder, the effects of trauma), and many occur alongside it. Mention them all.') + '</p>' : '');
+      html += '<section class="card"><h2>' + (res.conditions ? 'Other things to raise' : 'Who knows so far') + '</h2>';
+      if (res.conditions) html += '<p><b>Conditions diagnosed or suspected:</b> ' + (res.conditions.labels.length ? esc(res.conditions.labels.join('; ')) : 'none ticked') + '.</p>' + (res.conditions.labels.length && !res.conditions.none ? '<p class="muted small">' + (ct.condNote ? esc(ct.condNote) : adhd ? 'The team will weigh these up: some can look like ADHD (anxiety, low mood, poor sleep, thyroid problems, the effects of trauma), many occur alongside it, and anything about the heart or blood pressure matters before medication. Mention them all.' : 'The team will weigh these up: some can look like autism (social anxiety, ADHD, language disorder, the effects of trauma), and many occur alongside it. Mention them all.') + '</p>' : '');
       if (res.raised) html += '<p><b>Concerns raised so far by:</b> ' + (res.raised.labels.length ? esc(res.raised.labels.join('; ')) : 'nobody yet') + '.</p>';
-      if (res.supportSoFar) html += '<p><b>Already involved:</b> ' + (res.supportSoFar.labels.length ? esc(res.supportSoFar.labels.join('; ')) : 'nobody yet') + '.</p>';
+      if (res.supportSoFar) html += '<p><b>' + (r.condition === 'narcissism' ? 'Talked to so far:' : 'Already involved:') + '</b> ' + (res.supportSoFar.labels.length ? esc(res.supportSoFar.labels.join('; ')) : 'nobody yet') + '.</p>';
       html += '</section>';
     }
 
@@ -449,7 +483,7 @@
     html += '<section class="card"><h2>' + esc(nation.title) + ', what happens next</h2><ul class="plain spaced">' + nation.points.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
     html += '<h3>The stages after referral</h3><ol class="pathway compact">' + c.pathway.slice(2).map((p) => '<li><b>' + esc(p.title) + '</b><span>' + esc(p.text) + '</span></li>').join('') + '</ol></section>';
 
-    html += '<section class="card"><h2>What to take to the appointment</h2><ul class="plain spaced">' + c.bring[self ? 'self' : 'parent'].map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul></section>';
+    html += '<section class="card"><h2>' + (r.bringKey === 'other' ? 'If you talk to a service' : 'What to take to the appointment') + '</h2><ul class="plain spaced">' + c.bring[r.bringKey || (self ? 'self' : 'parent')].map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul></section>';
 
     /* actions */
     html += '<section class="card actions"><h2>Your summary</h2><p class="muted small">Plain text, ready to paste into a message to your GP surgery or to print.</p>';
@@ -459,7 +493,7 @@
 
     html += '<section class="card"><h2>Organisations that can help</h2><ul class="orgs">' + c.organisations.map((o) => '<li><a href="' + esc(o.url) + '" target="_blank" rel="noopener">' + esc(o.name) + '</a><span>' + esc(o.detail) + '</span></li>').join('') + '</ul></section>';
 
-    html += '<p class="muted small">Signpost is a screening aid, not a diagnosis. ' + (adhd ? 'A real assessment is a structured interview by a specialist who also weighs your history and other explanations.' : 'It cannot see how you or your child actually interact, which is the heart of a real assessment.') + (adhd ? ' Autism and ADHD often occur together; the autism screening is on the home page.' : ' Autism and ADHD often occur together; the ADHD screening is on the home page.') + '</p>';
+    html += '<p class="muted small">' + (ct.footer ? esc(ct.footer) : 'Signpost is a screening aid, not a diagnosis. ' + (adhd ? 'A real assessment is a structured interview by a specialist who also weighs your history and other explanations.' : 'It cannot see how you or your child actually interact, which is the heart of a real assessment.') + (adhd ? ' Autism and ADHD often occur together; the autism screening is on the home page.' : ' Autism and ADHD often occur together; the ADHD screening is on the home page.')) + '</p>';
     html += '<div class="nav"><button class="btn" data-go="back">Back</button><div class="nav-right"><button class="btn" data-go="home">Home</button><button class="btn quiet" data-go="restart">' + (confirmClear ? 'Tap again to clear everything' : 'Start again') + '</button></div></div>';
     return html;
   }

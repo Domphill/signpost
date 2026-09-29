@@ -102,10 +102,42 @@ const Score = (() => {
     return { id: def.id, type: 'snap', inMean, hypMean, inCount: counts.in, hypCount: counts.hyp, inFlag, hypFlag, answered, total: def.items.length, cutoffs: def.cutoffs, complete, flagged: inFlag || hypFlag };
   }
 
+  /* NPI-16: one point for each pair where the narcissism-consistent statement is chosen. A trait measure with no clinical
+     cut-off; the bands are roughly one and two standard deviations above the published adult mean (about 5, SD about 3). */
+  function npi(answers, def) {
+    const a = answers || {};
+    let score = 0;
+    let answered = 0;
+    def.items.forEach((it) => {
+      const v = a[it.id];
+      if (!isNum(v)) return;
+      answered++;
+      if (v === it.key) score++;
+    });
+    const complete = answered === def.items.length;
+    const band = score >= 12 ? { key: 'high', label: 'much higher than most people' } : score >= 9 ? { key: 'marked', label: 'higher than most people' } : { key: 'low', label: 'in the typical range' };
+    return { id: def.id, type: 'npi', score, answered, total: def.items.length, complete, band, flagged: false };
+  }
+
+  /* HSNS: sum of ten 1-to-5 ratings (10 to 50). Published adult mean about 29, SD about 6; bands at one and two SDs above. */
+  function hsns(part) {
+    if (!part || part.type !== 'single') return null;
+    let sum = 0;
+    let answered = 0;
+    Object.keys(part.values).forEach((id) => {
+      sum += part.values[id].index + 1;
+      answered++;
+    });
+    const complete = answered === part.total;
+    const band = !complete ? null : sum >= 42 ? { key: 'high', label: 'much higher than most people' } : sum >= 36 ? { key: 'marked', label: 'higher than most people' } : { key: 'low', label: 'in the typical range' };
+    return { score: sum, answered, total: part.total, complete, band };
+  }
+
   function screener(answers, def) {
     if (def.type === 'aq10') return aq10(answers, def);
     if (def.type === 'qchat') return qchat(answers, def);
     if (def.type === 'asrs') return asrs(answers, def);
+    if (def.type === 'npi') return npi(answers, def);
     return snap(answers, def);
   }
 
@@ -133,15 +165,18 @@ const Score = (() => {
       r.core = groups.core ? groups.core.checked : 0;
       r.context = groups.context ? groups.context.checked : 0;
       r.meets = r.core >= 1 && r.context >= 1;
-    } else if (def.rule === 'nice-adhd') {
-      /* NG87: a pattern of symptoms that is persistent, pervasive and impairing, so all three context items are needed. */
+    } else if (def.rule === 'nice-adhd' || def.rule === 'core-all') {
+      /* A pattern (at least one core item) that is persistent, pervasive and impairing, so every context item is needed.
+         NG87 for ADHD; the ICD-11 general criteria for personality disorder. */
       r.core = groups.core ? groups.core.checked : 0;
       r.context = groups.context ? groups.context.checked : 0;
       r.contextTotal = groups.context ? groups.context.total : 0;
       r.meets = r.core >= 1 && r.context === r.contextTotal;
     } else {
-      /* NICE sets no number for children. Three or more signs is Signpost's working line for "several together". */
-      r.meets = checked >= 3;
+      /* NICE sets no number for children. Three or more signs is Signpost's working line for "several together";
+         a checklist can set its own line with meetsAt. */
+      r.meetsAt = def.meetsAt || 3;
+      r.meets = checked >= r.meetsAt;
     }
     return r;
   }
@@ -257,18 +292,34 @@ const Score = (() => {
     res.lostSkills = !!(res.milestones && res.milestones.values.loss && res.milestones.values.loss.index === 1) || (route.history === 'child' && cAns.i2 === 'yes');
 
     /* ADHD: settings (pervasiveness), the school's view, and the everyday-patterns section */
-    res.settings = byId.S && byId.S.parts.main && byId.S.parts.main.type === 'check' ? byId.S.parts.main : null;
+    res.settings = route.condition === 'adhd' && byId.S && byId.S.parts.main && byId.S.parts.main.type === 'check' ? byId.S.parts.main : null;
     res.settingsCount = res.settings ? res.settings.selected.filter((id) => id !== 'set_none').length : 0;
     res.school = byId.S && byId.S.parts.school ? byId.S.parts.school : null;
     res.patterns = mean('E');
 
+    /* narcissism: the vulnerable scale, the relationship pattern, and the effect on someone else */
+    res.hsns = byId.V ? hsns(byId.V.parts.main) : null;
+    res.functioning = mean('F');
+    res.effects = mean('X');
+    res.situation = byId.S && byId.S.parts.main && byId.S.parts.main.type === 'check' && route.condition === 'narcissism' ? byId.S.parts.main : null;
+
     /* other conditions, support, wellbeing */
     const O = byId.O;
     res.conditions = O && O.parts.cond ? O.parts.cond : null;
-    res.supportSoFar = O && O.parts.support ? O.parts.support : null;
+    res.supportSoFar = O && O.parts.support ? O.parts.support : byId.T && byId.T.parts.support ? byId.T.parts.support : null;
     res.raised = O && O.parts.raised ? O.parts.raised : null;
     res.wellbeing = O && O.parts.well ? O.parts.well : null;
-    res.risk = !!(res.wellbeing && res.wellbeing.flagged);
+
+    /* any risk-flagged part anywhere sets the risk flag; the support panel shown is the flagged part's own (abuse before self) */
+    res.riskParts = [];
+    res.sections.forEach((s) => {
+      s.def.parts.forEach((p) => {
+        if (p.risk && s.parts[p.id] && s.parts[p.id].flagged) res.riskParts.push({ section: s.def.id, part: p.id, kind: p.support || route.respondent });
+      });
+    });
+    res.risk = res.riskParts.length > 0;
+    res.riskKind = res.riskParts.some((p) => p.kind === 'abuse') ? 'abuse' : res.riskParts.length ? res.riskParts[0].kind : route.respondent;
+    res.safety = byId.T && byId.T.parts.safety ? byId.T.parts.safety : null;
 
     res.verdict = verdict(res);
     return res;
@@ -276,6 +327,7 @@ const Score = (() => {
 
   function verdict(res) {
     if (res.route.condition === 'adhd') return verdictAdhd(res);
+    if (res.route.condition === 'narcissism') return res.route.id === 'narc-other' ? verdictOther(res) : verdictNarc(res);
     const r = res.route;
     const reasons = [];
     const notes = [];
@@ -403,6 +455,79 @@ const Score = (() => {
     return { key, title: titles[key], body: bodies[key], reasons, notes };
   }
 
+  function verdictNarc(res) {
+    const reasons = [];
+    const notes = [];
+    const sc = res.screener;
+    const g = res.signs;
+    const F = res.functioning;
+    const D = res.impact;
+    const h = res.hsns;
+    const condSel = res.conditions ? res.conditions.selected : [];
+
+    if (sc && sc.complete && sc.band.key !== 'low') notes.push('NPI-16 score of ' + sc.score + ' out of 16, ' + sc.band.label + ' (a trait, not a diagnosis)');
+    else if (sc && sc.complete) notes.push('NPI-16 score of ' + sc.score + ' out of 16, in the typical range');
+    if (h && h.complete && h.band.key !== 'low') notes.push('HSNS score of ' + h.score + ' out of 50, ' + h.band.label + ' (the vulnerable, easily wounded shape)');
+    if (g.meets) reasons.push('the ICD-11 pattern is present: a problem in how you see yourself or relate to others that is long-standing, shows up everywhere, and has cost you');
+    else if (g.core >= 1 && g.context >= 1) notes.push('some of the ICD-11 pattern is ticked (' + g.core + ' of 2 core problems, ' + g.context + ' of 3 of long-standing, everywhere, costly), but a clinician needs all three of the second group');
+    if (F !== null && F >= MARKED) reasons.push('a marked pattern in relationships: needing admiration, difficulty feeling what others feel, reacting to criticism with anger or contempt');
+    else if (F !== null && F >= 0.75) notes.push('some of the relationship pattern is present');
+    if (res.early && res.early.yesItems.some((t) => /teens/.test(t)) && res.early.yesItems.some((t) => /every part/.test(t))) reasons.push('long-standing and present across every part of life');
+    if (res.early && res.early.yesItems.some((t) => /long periods/.test(t))) notes.push('there have been long periods when none of this was a problem, which points a clinician away from a personality disorder and towards mood, circumstances or a particular relationship');
+    if (D !== null && D >= MARKED) reasons.push('a marked effect on relationships, work or wellbeing');
+    if (res.early && res.early.yesItems.some((t) => /called me a narcissist/.test(t))) notes.push('this started with an accusation or a break-up; that is worth talking about in its own right, whatever the scores say');
+    if (h && h.complete && h.band.key !== 'low' && (condSel.indexOf('dep') !== -1 || condSel.indexOf('anx') !== -1 || res.risk)) notes.push('a high HSNS score alongside low mood or anxiety: this shape overlaps heavily with depression and social anxiety, and treating those often changes the picture');
+
+    const strong = g.meets && ((F !== null && F >= MARKED) || (D !== null && D >= MARKED));
+    const some = (F !== null && F >= 0.75) || g.core >= 1 || !!(sc && sc.complete && sc.band.key !== 'low') || !!(h && h.complete && h.band.key !== 'low') || (D !== null && D >= MARKED);
+    const key = strong ? 'refer' : some ? 'discuss' : 'low';
+    const titles = {
+      refer: 'Talk to your GP about a personality assessment',
+      discuss: 'Worth a conversation with your GP or a therapist',
+      low: 'These answers don’t point strongly towards a narcissistic pattern'
+    };
+    const bodies = {
+      refer: 'Your answers describe a long-standing pattern in how you see yourself and relate to others that is causing real harm. Signpost cannot diagnose a personality disorder; only a psychiatrist or clinical psychologist can, after a detailed interview. But the pattern you describe is what that assessment is for, and asking the question is a sign of exactly the self-awareness that makes therapy work.',
+      discuss: 'Your answers show some narcissistic traits, or some strain in relationships, but not the pervasive, long-standing, harmful pattern that defines a personality disorder. Traits like these are common and are not an illness. If they are causing you or the people around you difficulty, a therapist can help, and your GP is a reasonable first step, particularly if low mood or anxiety are part of the picture.',
+      low: 'On these answers, narcissistic traits are within the ordinary range and the pattern a clinician looks for is not present. People who worry that they might be narcissists are, as a rule, not the ones clinicians worry about. If the question came from someone else’s accusation, or from low self-worth, those are worth talking about in their own right.'
+    };
+    return { key, title: titles[key], body: bodies[key], reasons, notes };
+  }
+
+  function verdictOther(res) {
+    const reasons = [];
+    const notes = [];
+    const g = res.signs;
+    const X = res.effects;
+    const safety = !!(res.safety && res.safety.flagged);
+    const sit = res.situation ? res.situation.selected : [];
+
+    if (safety) reasons.push('you are afraid of this person, or there has been violence, threats or being stopped from leaving');
+    if (g.checked >= g.meetsAt) reasons.push(g.checked + ' of the ' + g.total + ' controlling or coercive behaviours were ticked' + (g.groups.fear && g.groups.fear.checked ? ', including ' + g.groups.fear.checked + ' in the fear group' : ''));
+    else if (g.checked > 0) notes.push(g.checked + ' of the ' + g.total + ' controlling or coercive behaviours were ticked');
+    if (X !== null && X >= MARKED) reasons.push('a marked effect on you: eggshells, lost confidence, dread, doubting yourself');
+    else if (X !== null && X >= 0.75) notes.push('some effect on you');
+    if (sit.indexOf('children') !== -1) notes.push('children are involved, which every service will ask about first and which changes the options');
+    if (sit.indexOf('money') !== -1 || sit.indexOf('live') !== -1) notes.push('living together or depending on them financially makes practical advice from a service more useful than any label');
+    if (sit.indexOf('workplace') !== -1) notes.push('for a colleague or manager, the same pattern is dealt with through your employer, ACAS or a union rather than domestic abuse services');
+    if (res.supportSoFar && res.supportSoFar.none) notes.push('nobody knows yet');
+
+    const strong = safety || g.checked >= 5 || (g.checked >= g.meetsAt && X !== null && X >= MARKED);
+    const some = g.checked >= 2 || (X !== null && X >= MARKED) || (g.checked >= 1 && X !== null && X >= 0.75);
+    const key = strong ? 'refer' : some ? 'discuss' : 'low';
+    const titles = {
+      refer: 'Talk to a domestic abuse service: this is the pattern they deal with every day',
+      discuss: 'Worth talking it through with someone outside the relationship',
+      low: 'What you describe doesn’t strongly match a controlling pattern'
+    };
+    const bodies = {
+      refer: 'What you have described is not about whether this person has a diagnosis. It is a pattern of control, contempt or fear, and in the UK that pattern is what services and the law respond to, with or without a label. No questionnaire can diagnose someone who is not in the room, and you do not need one to get help. The helplines below are free, confidential, and used to hearing exactly this.',
+      discuss: 'Some of what you describe is the kind of behaviour that wears people down, but not the full pattern of control that domestic abuse services look for. That does not make it fine. Talking to a counsellor, your GP, or a helpline can help you see the pattern more clearly. Whether this person “is a narcissist” matters much less than whether the relationship is safe and good for you.',
+      low: 'Most of the behaviours that mark a controlling or abusive relationship are not present in your answers. Ordinary conflict, selfishness, or a bad patch can feel awful without being abuse, and only you can judge the relationship as a whole. If things change, or you ever feel afraid, the helplines below are there.'
+    };
+    return { key, title: titles[key], body: bodies[key], reasons, notes };
+  }
+
   /* ----- plain-text summary to take to the GP ----- */
   function fmt(n) {
     return n === null || n === undefined ? '–' : (Math.round(n * 10) / 10).toFixed(1);
@@ -423,12 +548,17 @@ const Score = (() => {
       const s = res.screener;
       if (s.type === 'asrs') L.push('Screening questionnaire: ' + s.def.title + ' Part A ' + s.score + '/6 (cut-off ' + s.threshold + ', ' + (s.partAComplete ? (s.flagged ? 'screen positive' : 'screen negative') : 'incomplete') + ') | Part B ' + s.partB + '/12 | symptom-level items: inattention ' + s.inCount + '/9, hyperactive-impulsive ' + s.hypCount + '/9' + (s.complete ? '' : ' (' + s.answered + ' of ' + s.total + ' answered)'));
       else if (s.type === 'snap') L.push('Screening questionnaire: ' + s.def.title + ' inattention mean ' + fmt(s.inMean) + ' (parent cut-off ' + s.cutoffs.in + (s.inFlag ? ', at or above' : ', below') + ') | hyperactivity-impulsivity mean ' + fmt(s.hypMean) + ' (cut-off ' + s.cutoffs.hyp + (s.hypFlag ? ', at or above' : ', below') + ') | items rated quite a bit or very much: inattention ' + s.inCount + '/9, hyperactive-impulsive ' + s.hypCount + '/9' + (s.complete ? '' : ' (' + s.answered + ' of ' + s.total + ' answered)'));
+      else if (s.type === 'npi') L.push('Trait scale: ' + s.def.title + ' score ' + s.score + '/16 (no clinical cut-off; typical adult range up to about 8) | ' + (s.complete ? s.band.label : 'incomplete, ' + s.answered + ' of 16 answered'));
       else L.push('Screening questionnaire: ' + s.def.title + ' score ' + s.score + '/' + s.total + (s.complete ? '' : ' (' + s.answered + ' of ' + s.total + ' answered)') + ' | cut-off ' + s.threshold + ' | ' + (s.complete ? (s.flagged ? 'at or above the cut-off: consider referral for assessment' : 'below the cut-off') : 'incomplete'));
     }
+    if (res.hsns) L.push('Trait scale: Hypersensitive Narcissism Scale ' + res.hsns.score + '/50 (typical adult range about 25 to 35) | ' + (res.hsns.complete ? res.hsns.band.label : 'incomplete, ' + res.hsns.answered + ' of 10 answered'));
     const g = res.signs;
     if (g.rule === 'nice-adult') L.push('NICE CG142 identification: ' + g.core + '/3 core signs, ' + g.context + '/4 life factors | ' + (g.meets ? 'meets the "consider assessment" test' : 'does not meet the "consider assessment" test'));
     else if (g.rule === 'nice-adhd') L.push('NICE NG87 referral test: ' + g.core + '/3 symptom patterns, ' + g.context + '/' + g.contextTotal + ' of persistent/pervasive/impairing | ' + (g.meets ? 'met' : 'not met'));
+    else if (g.rule === 'core-all') L.push(g.def.summaryLabel + ': ' + g.core + '/2 core problems, ' + g.context + '/' + g.contextTotal + ' of long-standing/everywhere/costly | ' + (g.meets ? 'pattern present' : 'pattern not fully present'));
+    else if (g.def.summaryLabel) L.push(g.def.summaryLabel + ': ' + g.checked + '/' + g.total + ' ticked');
     else L.push('NICE CG128 signs for this age: ' + g.checked + '/' + g.total + ' ticked');
+    if (res.safety && res.safety.values.s1) L.push('Safety: afraid, or violence/threats/stopped from leaving: ' + res.safety.values.s1.label);
     if (g.labels.length) g.labels.forEach((t) => L.push('  * ' + t));
     L.push('');
     L.push('Profile (mean of 0-3 ratings; 1.5 or more = marked):');
@@ -442,6 +572,8 @@ const Score = (() => {
         m.yesItems.forEach((t) => L.push('      - ' + t));
       } else if (m.type === 'single' && s.def.id === 'C') {
         L.push('  Milestones: ' + s.def.parts[0].items.map((it) => it.text + ': ' + (m.values[it.id] ? m.values[it.id].label : 'not answered')).join('; '));
+      } else if (m.type === 'check' && s.def.id === 'S') {
+        L.push('  ' + s.def.title + ': ' + (m.labels.length ? m.labels.join('; ') : 'nothing ticked'));
       }
       Object.keys(s.parts).forEach((pid) => {
         if (pid === 'main') return;
@@ -457,9 +589,10 @@ const Score = (() => {
     });
     L.push('');
     if (res.route.condition === 'adhd') L.push('Signpost is a screening aid built around NICE NG87. It does not diagnose ADHD. Screeners: ASRS v1.1 (Kessler et al., WHO, 2005) / SNAP-IV (Swanson).');
+    else if (res.route.condition === 'narcissism') L.push('Signpost is a screening aid. It does not diagnose a personality disorder, and it cannot diagnose anyone other than the person answering. Trait scales: NPI-16 (Ames, Rose and Anderson, 2006) / HSNS (Hendin and Cheek, 1997). Behaviour checklist: Home Office guidance on controlling or coercive behaviour.');
     else L.push('Signpost is a screening aid built around NICE CG128/CG142. It does not diagnose autism. Screeners: AQ-10 / Q-CHAT-10 (Allison, Auyeung and Baron-Cohen, 2012).');
     return L.join('\n');
   }
 
-  return { LEVELS, MARKED, level, aq10, qchat, asrs, snap, screener, signs, part, section, summarise, verdict, summaryText, fmt };
+  return { LEVELS, MARKED, level, aq10, qchat, asrs, snap, npi, hsns, screener, signs, part, section, summarise, verdict, summaryText, fmt };
 })();
