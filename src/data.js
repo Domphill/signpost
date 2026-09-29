@@ -10,11 +10,11 @@ const DATA = {
   version: 1,
 
   routes: [
-    { id: 'adult', label: 'An adult, 16 or over', sub: 'Answered by the person themselves, ideally with someone who knew them as a child on hand for the early-years questions', respondent: 'self', screener: 'aq10-adult', signs: 'adult', history: 'adult', ageText: 'adult (16 or over)', guideline: 'NICE CG142' },
-    { id: 'teen', label: 'A young person aged 12 to 15', sub: 'Answered by a parent or carer', respondent: 'parent', screener: 'aq10-adolescent', signs: 'secondary', history: 'child', ageText: 'young person aged 12 to 15', guideline: 'NICE CG128' },
-    { id: 'child', label: 'A child aged 4 to 11', sub: 'Answered by a parent or carer', respondent: 'parent', screener: 'aq10-child', signs: 'primary', history: 'child', ageText: 'child aged 4 to 11', guideline: 'NICE CG128' },
-    { id: 'preschool', label: 'A child aged 2½ to 3', sub: 'Answered by a parent or carer. No brief questionnaire is validated for this age, so Signpost uses the NICE signs list and a developmental history', respondent: 'parent', screener: null, signs: 'preschool', history: 'toddler', ageText: 'child aged 2½ to 3', guideline: 'NICE CG128' },
-    { id: 'toddler', label: 'A toddler aged 18 months to 2½', sub: 'Answered by a parent or carer', respondent: 'parent', screener: 'qchat10', signs: 'preschool', history: 'toddler', ageText: 'toddler aged 18 to 30 months', guideline: 'NICE CG128' }
+    { id: 'adult', label: 'An adult, 16 or over', condition: 'autism', sub: 'Answered by the person themselves, ideally with someone who knew them as a child on hand for the early-years questions', respondent: 'self', screener: 'aq10-adult', signs: 'adult', history: 'adult', ageText: 'adult (16 or over)', guideline: 'NICE CG142' },
+    { id: 'teen', label: 'A young person aged 12 to 15', condition: 'autism', sub: 'Answered by a parent or carer', respondent: 'parent', screener: 'aq10-adolescent', signs: 'secondary', history: 'child', ageText: 'young person aged 12 to 15', guideline: 'NICE CG128' },
+    { id: 'child', label: 'A child aged 4 to 11', condition: 'autism', sub: 'Answered by a parent or carer', respondent: 'parent', screener: 'aq10-child', signs: 'primary', history: 'child', ageText: 'child aged 4 to 11', guideline: 'NICE CG128' },
+    { id: 'preschool', label: 'A child aged 2½ to 3', condition: 'autism', sub: 'Answered by a parent or carer. No brief questionnaire is validated for this age, so Signpost uses the NICE signs list and a developmental history', respondent: 'parent', screener: null, signs: 'preschool', history: 'toddler', ageText: 'child aged 2½ to 3', guideline: 'NICE CG128' },
+    { id: 'toddler', label: 'A toddler aged 18 months to 2½', condition: 'autism', sub: 'Answered by a parent or carer', respondent: 'parent', screener: 'qchat10', signs: 'preschool', history: 'toddler', ageText: 'toddler aged 18 to 30 months', guideline: 'NICE CG128' }
   ],
   underAgeNote: 'Under 18 months: the screening questionnaires are not validated this young. If you have concerns, talk to your health visitor. Signs such as not responding to their name, not pointing, and little babble by 12 months are worth mentioning.',
 
@@ -670,4 +670,19 @@ const DATA = {
     'SIGN 145. Assessment, diagnosis and interventions for autism spectrum disorders (2016).',
     'World Health Organization. ICD-11, 6A02 Autism spectrum disorder. American Psychiatric Association. DSM-5-TR, 299.00.'
   ]
+};
+
+/* Each condition carries its own pathway text; data-adhd.js adds the second one. */
+DATA.conditions = {
+  autism: {
+    id: 'autism', label: 'Autism', noun: 'autism',
+    lede: 'The signs NICE tells GPs and health visitors to look for, the short questionnaires they use, and the history an autism assessment team takes.',
+    underAgeNote: DATA.underAgeNote,
+    whoIntro: 'The checklist and questionnaire change with age, because NICE uses different ones. Pick the group that fits.',
+    pathway: DATA.pathway,
+    nationNotes: DATA.nationNotes,
+    bring: DATA.bring,
+    organisations: DATA.organisations,
+    references: DATA.references
+  }
 };

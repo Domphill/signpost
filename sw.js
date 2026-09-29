@@ -1,7 +1,7 @@
 /* Signpost - offline support. The app files are cached so Signpost opens without a connection.
    Bump VERSION when files change. Only caches named signpost-* are touched, because other apps
    (Lantern, Fuel, Buzz, Wardrobe) share this origin. */
-const VERSION = 'signpost-v1';
+const VERSION = 'signpost-v2';
 const FILES = [
   './',
   'index.html',
@@ -13,6 +13,7 @@ const FILES = [
   'icons/apple-touch-icon.png',
   'src/base.css',
   'src/data.js',
+  'src/data-adhd.js',
   'src/score.js',
   'src/app.js'
 ];

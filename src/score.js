@@ -56,8 +56,57 @@ const Score = (() => {
     return { id: def.id, type: 'qchat', score, answered, total: def.items.length, threshold: def.threshold, complete, flagged: complete && score >= def.threshold };
   }
 
+  /* ASRS v1.1: an item counts when it reaches its own shaded threshold ("Sometimes" or "Often"). Part A screens positive at 4 of 6.
+     The 18 items map onto the 18 diagnostic symptoms, so the per-domain counts are reported too (adults need 5 in a domain). */
+  function asrs(answers, def) {
+    const a = answers || {};
+    let partA = 0;
+    let partB = 0;
+    let answered = 0;
+    const domains = { in: 0, hyp: 0 };
+    def.items.forEach((it) => {
+      const v = a[it.id];
+      if (!isNum(v)) return;
+      answered++;
+      if (v >= it.min) {
+        if (it.part === 'A') partA++;
+        else partB++;
+        domains[it.domain]++;
+      }
+    });
+    const complete = answered === def.items.length;
+    const partAComplete = def.items.filter((it) => it.part === 'A').every((it) => isNum(a[it.id]));
+    return { id: def.id, type: 'asrs', score: partA, partB, inCount: domains.in, hypCount: domains.hyp, answered, total: def.items.length, threshold: def.threshold, complete, partAComplete, flagged: partAComplete && partA >= def.threshold };
+  }
+
+  /* SNAP-IV: mean of each nine-item subscale against the published parent cut-offs; items rated 2 or 3 count as symptoms present. */
+  function snap(answers, def) {
+    const a = answers || {};
+    const sums = { in: 0, hyp: 0 };
+    const ns = { in: 0, hyp: 0 };
+    const counts = { in: 0, hyp: 0 };
+    let answered = 0;
+    def.items.forEach((it) => {
+      const v = a[it.id];
+      if (!isNum(v)) return;
+      answered++;
+      sums[it.domain] += v;
+      ns[it.domain]++;
+      if (v >= 2) counts[it.domain]++;
+    });
+    const complete = answered === def.items.length;
+    const inMean = ns.in ? sums.in / ns.in : null;
+    const hypMean = ns.hyp ? sums.hyp / ns.hyp : null;
+    const inFlag = complete && inMean >= def.cutoffs.in;
+    const hypFlag = complete && hypMean >= def.cutoffs.hyp;
+    return { id: def.id, type: 'snap', inMean, hypMean, inCount: counts.in, hypCount: counts.hyp, inFlag, hypFlag, answered, total: def.items.length, cutoffs: def.cutoffs, complete, flagged: inFlag || hypFlag };
+  }
+
   function screener(answers, def) {
-    return def.type === 'aq10' ? aq10(answers, def) : qchat(answers, def);
+    if (def.type === 'aq10') return aq10(answers, def);
+    if (def.type === 'qchat') return qchat(answers, def);
+    if (def.type === 'asrs') return asrs(answers, def);
+    return snap(answers, def);
   }
 
   /* ----- NICE recognition checklists ----- */
@@ -84,6 +133,12 @@ const Score = (() => {
       r.core = groups.core ? groups.core.checked : 0;
       r.context = groups.context ? groups.context.checked : 0;
       r.meets = r.core >= 1 && r.context >= 1;
+    } else if (def.rule === 'nice-adhd') {
+      /* NG87: a pattern of symptoms that is persistent, pervasive and impairing, so all three context items are needed. */
+      r.core = groups.core ? groups.core.checked : 0;
+      r.context = groups.context ? groups.context.checked : 0;
+      r.contextTotal = groups.context ? groups.context.total : 0;
+      r.meets = r.core >= 1 && r.context === r.contextTotal;
     } else {
       /* NICE sets no number for children. Three or more signs is Signpost's working line for "several together". */
       r.meets = checked >= 3;
@@ -201,6 +256,12 @@ const Score = (() => {
     const cAns = answers.C || {};
     res.lostSkills = !!(res.milestones && res.milestones.values.loss && res.milestones.values.loss.index === 1) || (route.history === 'child' && cAns.i2 === 'yes');
 
+    /* ADHD: settings (pervasiveness), the school's view, and the everyday-patterns section */
+    res.settings = byId.S && byId.S.parts.main && byId.S.parts.main.type === 'check' ? byId.S.parts.main : null;
+    res.settingsCount = res.settings ? res.settings.selected.filter((id) => id !== 'set_none').length : 0;
+    res.school = byId.S && byId.S.parts.school ? byId.S.parts.school : null;
+    res.patterns = mean('E');
+
     /* other conditions, support, wellbeing */
     const O = byId.O;
     res.conditions = O && O.parts.cond ? O.parts.cond : null;
@@ -214,6 +275,7 @@ const Score = (() => {
   }
 
   function verdict(res) {
+    if (res.route.condition === 'adhd') return verdictAdhd(res);
     const r = res.route;
     const reasons = [];
     const notes = [];
@@ -278,6 +340,69 @@ const Score = (() => {
     return v;
   }
 
+  function verdictAdhd(res) {
+    const r = res.route;
+    const self = r.respondent === 'self';
+    const reasons = [];
+    const notes = [];
+    const sc = res.screener;
+    const g = res.signs;
+    const onset = res.early ? res.early.yes : 0;
+    const onsetBefore12 = !!(res.early && res.early.yesItems.some((t) => /before/.test(t)));
+    let symptomLevel = false;
+
+    if (sc && sc.type === 'asrs') {
+      if (sc.partAComplete && sc.flagged) reasons.push('ASRS Part A score of ' + sc.score + ' out of 6 is at or above the screening cut-off of ' + sc.threshold);
+      else if (sc.partAComplete && sc.score >= 2) notes.push('ASRS Part A score of ' + sc.score + ' out of 6, below the cut-off of ' + sc.threshold);
+      if (sc.complete && (sc.inCount >= 5 || sc.hypCount >= 5)) {
+        symptomLevel = true;
+        reasons.push('symptom count at the adult diagnostic level: ' + sc.inCount + ' of 9 inattention and ' + sc.hypCount + ' of 9 hyperactive-impulsive items');
+      } else if (sc.complete && sc.inCount + sc.hypCount >= 3) notes.push(sc.inCount + ' of 9 inattention and ' + sc.hypCount + ' of 9 hyperactive-impulsive items reached the symptom level (adults need 5 in one domain)');
+    }
+    if (sc && sc.type === 'snap') {
+      if (sc.complete && sc.inFlag) reasons.push('SNAP-IV inattention average of ' + fmt(sc.inMean) + ' is at or above the parent cut-off of ' + sc.cutoffs.in);
+      if (sc.complete && sc.hypFlag) reasons.push('SNAP-IV hyperactivity-impulsivity average of ' + fmt(sc.hypMean) + ' is at or above the parent cut-off of ' + sc.cutoffs.hyp);
+      if (sc.complete && (sc.inCount >= 6 || sc.hypCount >= 6)) {
+        symptomLevel = true;
+        reasons.push('symptom count at the childhood diagnostic level: ' + sc.inCount + ' of 9 inattention and ' + sc.hypCount + ' of 9 hyperactive-impulsive items rated “quite a bit” or “very much”');
+      } else if (sc.complete && sc.inCount + sc.hypCount >= 3) notes.push(sc.inCount + ' of 9 inattention and ' + sc.hypCount + ' of 9 hyperactive-impulsive items rated “quite a bit” or “very much” (children need 6 in one domain)');
+    }
+
+    if (g.meets) reasons.push('the NICE referral test is met: a clear pattern that is persistent, seen in more than one setting, and impairing');
+    else if (g.checked > 0) notes.push(g.core + ' of 3 pattern' + (g.core === 1 ? '' : 's') + ' and ' + g.context + ' of ' + g.contextTotal + ' of the persistence, settings and impact conditions ticked; NICE needs all three of those');
+
+    if (onset >= 3) reasons.push('difficulties going back to childhood (' + onset + ' of ' + res.early.total + ' onset questions answered yes)');
+    else if (res.early && res.early.yes > 0) notes.push(onset + ' of ' + res.early.total + ' onset questions answered yes; evidence from before age 12 is something the team will need');
+    if (res.settingsCount >= 2) reasons.push('difficulties in ' + res.settingsCount + ' settings');
+    else if (res.settings && res.settingsCount === 1) notes.push('difficulties reported in one setting only; NICE needs two or more');
+    if (res.impact !== null && res.impact >= MARKED) reasons.push('a marked effect on daily life');
+    if (res.school && res.school.flagged) notes.push('the school’s view is missing or does not match: ' + res.school.values.t1.label.toLowerCase() + '. A teacher rating is usually needed before a referral goes ahead');
+    if (res.patterns !== null && res.patterns >= MARKED) notes.push('strong everyday patterns (emotions, time, sleep, hyperfocus) that are common in ADHD though not part of the criteria');
+
+    const strong = !!(sc && sc.flagged) || g.meets || (symptomLevel && (onsetBefore12 || onset >= 2));
+    const some = !!(sc && sc.type === 'asrs' && sc.partAComplete && sc.score >= 2) || !!(sc && sc.type === 'snap' && sc.complete && (sc.inMean >= 1 || sc.hypMean >= 1)) || !!(sc && sc.complete && sc.inCount + sc.hypCount >= 3) || symptomLevel || g.checked > 0 || (res.impact !== null && res.impact >= MARKED) || res.settingsCount >= 2;
+
+    const key = strong ? 'refer' : some ? 'discuss' : 'low';
+    const who = self ? 'your GP' : 'your GP or your child’s school';
+    const titles = {
+      refer: 'Talk to ' + who + ' about an ADHD assessment',
+      discuss: 'Worth a conversation with ' + who,
+      low: 'These answers don’t point strongly towards ADHD'
+    };
+    const bodies = {
+      refer: self
+        ? 'Your answers include what a GP checks before referring for ADHD. Signpost cannot diagnose ADHD; only a specialist can, after a structured interview and a look at your history and at other explanations. But there is enough here to ask for that assessment, and the summary below will help you make the case.'
+        : 'Your answers include what a GP or school checks before referring for ADHD. Signpost cannot diagnose ADHD; only a paediatrician or CAMHS can, with information from school as well as home. But there is enough here to ask for that assessment, and the summary below will help you make the case.',
+      discuss: self
+        ? 'Some of your answers point towards ADHD, but not the full pattern a GP would need to refer on this evidence alone. That does not rule it out; adults with mainly inattentive ADHD often score modestly on screeners. Take this summary to your GP, talk through the areas below, and ask what the local route to assessment is.'
+        : 'Some of your answers point towards ADHD, but not the full pattern a professional would need to refer on this evidence alone. That does not rule it out. Ask the teacher to complete the same rating scale, keep a note of examples for a few weeks, and take this summary to your GP.',
+      low: self
+        ? 'On these answers, the pattern a UK clinic looks for (five or more symptoms in a domain, present since childhood, in two or more settings, with real impairment) is not strongly present. If you still have real concerns, or things change, talk to your GP. Attention problems can also come from sleep, anxiety, low mood or thyroid problems, which deserve their own look.'
+        : 'On these answers, the pattern a UK clinic looks for (six or more symptoms in a domain, lasting six months or more, in two or more settings, with real impairment) is not strongly present. Keep watching, ask the teacher what they see, and if concerns continue talk to your GP. Attention and behaviour problems can also come from sleep, hearing, anxiety or difficult experiences, which deserve their own look.'
+    };
+    return { key, title: titles[key], body: bodies[key], reasons, notes };
+  }
+
   /* ----- plain-text summary to take to the GP ----- */
   function fmt(n) {
     return n === null || n === undefined ? '–' : (Math.round(n * 10) / 10).toFixed(1);
@@ -296,10 +421,13 @@ const Score = (() => {
     L.push('');
     if (res.screener) {
       const s = res.screener;
-      L.push('Screening questionnaire: ' + s.def.title + ' score ' + s.score + '/' + s.total + (s.complete ? '' : ' (' + s.answered + ' of ' + s.total + ' answered)') + ' | cut-off ' + s.threshold + ' | ' + (s.complete ? (s.flagged ? 'at or above the cut-off: consider referral for assessment' : 'below the cut-off') : 'incomplete'));
+      if (s.type === 'asrs') L.push('Screening questionnaire: ' + s.def.title + ' Part A ' + s.score + '/6 (cut-off ' + s.threshold + ', ' + (s.partAComplete ? (s.flagged ? 'screen positive' : 'screen negative') : 'incomplete') + ') | Part B ' + s.partB + '/12 | symptom-level items: inattention ' + s.inCount + '/9, hyperactive-impulsive ' + s.hypCount + '/9' + (s.complete ? '' : ' (' + s.answered + ' of ' + s.total + ' answered)'));
+      else if (s.type === 'snap') L.push('Screening questionnaire: ' + s.def.title + ' inattention mean ' + fmt(s.inMean) + ' (parent cut-off ' + s.cutoffs.in + (s.inFlag ? ', at or above' : ', below') + ') | hyperactivity-impulsivity mean ' + fmt(s.hypMean) + ' (cut-off ' + s.cutoffs.hyp + (s.hypFlag ? ', at or above' : ', below') + ') | items rated quite a bit or very much: inattention ' + s.inCount + '/9, hyperactive-impulsive ' + s.hypCount + '/9' + (s.complete ? '' : ' (' + s.answered + ' of ' + s.total + ' answered)'));
+      else L.push('Screening questionnaire: ' + s.def.title + ' score ' + s.score + '/' + s.total + (s.complete ? '' : ' (' + s.answered + ' of ' + s.total + ' answered)') + ' | cut-off ' + s.threshold + ' | ' + (s.complete ? (s.flagged ? 'at or above the cut-off: consider referral for assessment' : 'below the cut-off') : 'incomplete'));
     }
     const g = res.signs;
     if (g.rule === 'nice-adult') L.push('NICE CG142 identification: ' + g.core + '/3 core signs, ' + g.context + '/4 life factors | ' + (g.meets ? 'meets the "consider assessment" test' : 'does not meet the "consider assessment" test'));
+    else if (g.rule === 'nice-adhd') L.push('NICE NG87 referral test: ' + g.core + '/3 symptom patterns, ' + g.context + '/' + g.contextTotal + ' of persistent/pervasive/impairing | ' + (g.meets ? 'met' : 'not met'));
     else L.push('NICE CG128 signs for this age: ' + g.checked + '/' + g.total + ' ticked');
     if (g.labels.length) g.labels.forEach((t) => L.push('  * ' + t));
     L.push('');
@@ -328,9 +456,10 @@ const Score = (() => {
       });
     });
     L.push('');
-    L.push('Signpost is a screening aid built around NICE CG128/CG142. It does not diagnose autism. Screeners: AQ-10 / Q-CHAT-10 (Allison, Auyeung and Baron-Cohen, 2012).');
+    if (res.route.condition === 'adhd') L.push('Signpost is a screening aid built around NICE NG87. It does not diagnose ADHD. Screeners: ASRS v1.1 (Kessler et al., WHO, 2005) / SNAP-IV (Swanson).');
+    else L.push('Signpost is a screening aid built around NICE CG128/CG142. It does not diagnose autism. Screeners: AQ-10 / Q-CHAT-10 (Allison, Auyeung and Baron-Cohen, 2012).');
     return L.join('\n');
   }
 
-  return { LEVELS, MARKED, level, aq10, qchat, screener, signs, part, section, summarise, verdict, summaryText, fmt };
+  return { LEVELS, MARKED, level, aq10, qchat, asrs, snap, screener, signs, part, section, summarise, verdict, summaryText, fmt };
 })();
